@@ -65,6 +65,8 @@ func (r *GatewayClassReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// your logic here
 	log.Info("Reconciling Cluster", "Cluster", gatewayClass.Name)
 
+	// This is a quick overview of setting the condition of a controller... if it matches our controller name then
+	// we set it to ready
 	if gatewayClass.Spec.ControllerName == v1beta1.GatewayController(r.ControllerName) {
 		for x := range gatewayClass.Status.Conditions {
 			if gatewayClass.Status.Conditions[x].Type == "Accepted" {
@@ -72,12 +74,6 @@ func (r *GatewayClassReconciler) Reconcile(ctx context.Context, req ctrl.Request
 				gatewayClass.Status.Conditions[x].LastTransitionTime = metav1.Now()
 			}
 		}
-		//  = append(gatewayClass.Status.Conditions, metav1.Condition{
-		// 	Type:               "Accepted",
-		// 	Status:             metav1.ConditionTrue,
-		// 	Reason:             "Accepted",
-		// })
-
 		err := r.Client.Status().Update(context.TODO(), &gatewayClass, &client.SubResourceUpdateOptions{})
 		if err != nil {
 			log.Error(err, "unable to update gateway class")

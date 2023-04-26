@@ -29,7 +29,7 @@ The `/manifests` folder contains the basics of the `GatewayClass` and `Gateway` 
 
 ## Implented logic
 
-Currently a `Gateway` will verify that the parent `GatewayClass` exists.. that's it so far (clearly a long way to go)
+Currently the `GatewayClass` will set the status `ACCEPTED -> True` if the gatway controller matches and `Gateway` will verify that the parent `GatewayClass` exists.. that's it so far (clearly a long way to go)
 
 ## Want to Contribute?
 
