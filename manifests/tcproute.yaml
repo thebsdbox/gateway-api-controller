@@ -9,5 +9,5 @@ spec:
     sectionName: http-server  # name of listenter
   rules:
   - backendRefs:
-    - name: http-service
+    - name: my-nginx
       port: 80
