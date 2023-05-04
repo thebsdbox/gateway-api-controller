@@ -85,40 +85,41 @@ func (r *TCPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		err := r.Client.Get(ctx, key, gateway, nil)
 		if err != nil {
 			log.Info(fmt.Sprintf("Unknown Gateway [%v]", key.String()))
-		}
+		} else {
 
-		// Find our listener
-		if TCPRoute.Spec.ParentRefs[x].SectionName != nil {
-			listener := &v1beta1.Listener{}
-			for x := range gateway.Spec.Listeners {
-				if gateway.Spec.Listeners[x].Name == *TCPRoute.Spec.ParentRefs[x].SectionName {
-					listener = &gateway.Spec.Listeners[x]
+			// Find our listener
+			if TCPRoute.Spec.ParentRefs[x].SectionName != nil {
+				listener := &v1beta1.Listener{}
+				for x := range gateway.Spec.Listeners {
+					if gateway.Spec.Listeners[x].Name == *TCPRoute.Spec.ParentRefs[x].SectionName {
+						listener = &gateway.Spec.Listeners[x]
+					}
 				}
-			}
-			if listener != nil {
-				// We've found our listener!
-				// At this point we have our entrypoint
+				if listener != nil {
+					// We've found our listener!
+					// At this point we have our entrypoint
 
-				// Now to parse our backends  ¯\_(ツ)_/¯
-				for y := range TCPRoute.Spec.Rules {
-					for z := range TCPRoute.Spec.Rules[y].BackendRefs {
-						// Namespace logic!
-						var serviceNamespace string
-						if TCPRoute.Spec.Rules[y].BackendRefs[z].Namespace != nil {
-							serviceNamespace = string(*TCPRoute.Spec.ParentRefs[x].Namespace)
-						} else {
-							serviceNamespace = TCPRoute.Namespace
+					// Now to parse our backends  ¯\_(ツ)_/¯
+					for y := range TCPRoute.Spec.Rules {
+						for z := range TCPRoute.Spec.Rules[y].BackendRefs {
+							// Namespace logic!
+							var serviceNamespace string
+							if TCPRoute.Spec.Rules[y].BackendRefs[z].Namespace != nil {
+								serviceNamespace = string(*TCPRoute.Spec.ParentRefs[x].Namespace)
+							} else {
+								serviceNamespace = TCPRoute.Namespace
+							}
+							err = r.reconcileService(ctx, string(TCPRoute.Spec.Rules[y].BackendRefs[z].Name), serviceNamespace, TCPRoute.Name, int(listener.Port), int(*TCPRoute.Spec.Rules[y].BackendRefs[z].Port))
+							if err != nil {
+								return ctrl.Result{}, err
+							}
 						}
-						err = r.reconcileService(ctx, string(TCPRoute.Spec.Rules[y].BackendRefs[z].Name), serviceNamespace, TCPRoute.Name, int(listener.Port), int(*TCPRoute.Spec.Rules[y].BackendRefs[z].Port))
-						if err != nil {
-							return ctrl.Result{}, err
-						}
+
 					}
 
+				} else {
+					log.Info(fmt.Sprintf("Unknown Listener on gateway [%s]", *TCPRoute.Spec.ParentRefs[x].SectionName))
 				}
-
-			} else {
-				log.Info(fmt.Sprintf("Unknown Listener on gateway [%s]", *TCPRoute.Spec.ParentRefs[x].SectionName))
 			}
 		}
 	}
@@ -153,30 +154,36 @@ func (r *TCPRouteReconciler) reconcileService(ctx context.Context, name, namespa
 		Name:      name,
 	}
 	err := r.Get(ctx, key, &service)
-	if errors.IsNotFound(err) {
-		// Create the service
-		service.Name = name
-		service.Namespace = namespace
-		// Initialise the labels
-		service.Annotations = map[string]string{}
-		service.Annotations["gateway-api-controller"] = r.ControllerName
-		service.Annotations["parent-tcp-route"] = parentName
-		// Set service configuration
-		service.Spec.Type = v1.ServiceTypeLoadBalancer
-		service.Spec.Ports = []v1.ServicePort{
-			{
-				TargetPort: intstr.FromInt(targetport),
-				Port:       int32(port),
-			},
-		}
-		err = r.Create(ctx, &service, &client.CreateOptions{})
-		if err != nil {
-			return err
-		}
-	} else {
+	// if errors.IsNotFound(err) {
+
+	// } else {
+	//
+	if err != nil {
 		return err
 	}
 
+	// Create our service
+	service.Name = name + "-gw-api"
+	service.Namespace = namespace
+	service.ResourceVersion = ""
+	service.Spec.ClusterIP = ""
+	service.Spec.ClusterIPs = []string{}
+	// Initialise the labels
+	service.Annotations = map[string]string{}
+	service.Annotations["gateway-api-controller"] = r.ControllerName
+	service.Annotations["parent-tcp-route"] = parentName
+	// Set service configuration
+	service.Spec.Type = v1.ServiceTypeLoadBalancer
+	service.Spec.Ports = []v1.ServicePort{
+		{
+			TargetPort: intstr.FromInt(targetport),
+			Port:       int32(port),
+		},
+	}
+	err = r.Create(ctx, &service, &client.CreateOptions{})
+	if err != nil {
+		return err
+	}
 	// All gravy
 	return nil
 }

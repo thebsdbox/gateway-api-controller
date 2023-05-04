@@ -87,6 +87,16 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	}
 	log.Info("Found gatewayclass", "Cluster", gatewayClass)
 
+	// IPAM TBD
+
+	// Determine if we need to get some ipam..
+	// if len(gateway.Spec.Addresses) == 0 {
+
+	// }
+
+	// if len(gateway.Spec.Addresses) > 1 {
+	// 	log.Info("Only using the first Gateway address")
+	// }
 	return ctrl.Result{}, nil
 }
 
