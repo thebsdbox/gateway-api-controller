@@ -18,6 +18,7 @@ package gateway
 
 import (
 	"context"
+	"fmt"
 
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -33,6 +34,8 @@ import (
 type GatewayReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+
+	ControllerName string
 }
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -54,7 +57,7 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			// reconcile request, hence don't requeue
 			return ctrl.Result{}, nil
 		}
-		log.Error(err, "unable to fetch Directions object")
+		log.Error(err, "unable to fetch gateway object")
 		// we'll ignore not-found errors, since they can't be fixed by an immediate
 		// requeue (we'll need to wait for a new notification), and we can get them
 		// on deleted requests.
@@ -64,13 +67,13 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	log.Info("Reconciling Cluster", "Cluster", gateway.Name)
 
 	// Retrieve all Gateway Classes
-	gatewaysClasses := &v1beta1.GatewayClassList{}
+	// gatewaysClasses := &v1beta1.GatewayClassList{}
 
-	err := r.Client.List(ctx, gatewaysClasses, &client.ListOptions{})
-	if err != nil {
-		log.Error(err, "unable retrieve all gatway classes")
-	}
-	log.Info("Found gatewayclasses", "Cluster", gatewaysClasses)
+	// err := r.Client.List(ctx, gatewaysClasses, &client.ListOptions{})
+	// if err != nil {
+	// 	log.Error(err, "unable retrieve all gatway classes")
+	// }
+	//log.Info("Found gatewayclasses", "Cluster", gatewaysClasses)
 
 	// Retrieve the gatewayclass referenced by this gateway
 	gatewayClass := &v1beta1.GatewayClass{}
@@ -78,9 +81,9 @@ func (r *GatewayReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		Namespace: gateway.Namespace,
 		Name:      string(gateway.Spec.GatewayClassName),
 	}
-	err = r.Client.Get(ctx, key, gatewayClass, nil)
+	err := r.Client.Get(ctx, key, gatewayClass, nil)
 	if err != nil {
-		log.Error(err, "unable retrieve all gatway classes")
+		log.Info(fmt.Sprintf("Wrong Class [%v]", key.String()))
 	}
 	log.Info("Found gatewayclass", "Cluster", gatewayClass)
 
