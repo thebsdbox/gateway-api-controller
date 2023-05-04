@@ -7,5 +7,5 @@ spec:
   gatewayClassName: demo-gateway-class
   listeners:
   - name: http-server
-    port: 80
+    port: 8080
     protocol: TCP

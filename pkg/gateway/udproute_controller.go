@@ -32,6 +32,8 @@ import (
 type UDPRouteReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+
+	ControllerName string
 }
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to

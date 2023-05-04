@@ -56,7 +56,7 @@ func (r *GatewayClassReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			// reconcile request, hence don't requeue
 			return ctrl.Result{}, nil
 		}
-		log.Error(err, "unable to fetch Directions object")
+		log.Error(err, "unable to fetch Gateway Classes")
 		// we'll ignore not-found errors, since they can't be fixed by an immediate
 		// requeue (we'll need to wait for a new notification), and we can get them
 		// on deleted requests.
