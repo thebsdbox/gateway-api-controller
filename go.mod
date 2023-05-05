@@ -3,8 +3,10 @@ module github.com/thebsdbox/gateway-api-controller
 go 1.20
 
 require (
+	github.com/kube-vip/kube-vip-cloud-provider v0.0.4
 	k8s.io/apimachinery v0.26.3
 	k8s.io/client-go v0.26.3
+	k8s.io/klog v1.0.0
 	sigs.k8s.io/controller-runtime v0.14.6
 	sigs.k8s.io/gateway-api v0.6.2
 )
