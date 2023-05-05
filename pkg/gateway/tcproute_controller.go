@@ -84,7 +84,8 @@ func (r *TCPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		gateway := &v1beta1.Gateway{}
 		err := r.Client.Get(ctx, key, gateway, nil)
 		if err != nil {
-			log.Info(fmt.Sprintf("Unknown Gateway [%v]", key.String()))
+			return ctrl.Result{}, err
+			//log.Error(err, fmt.Sprintf("Unknown Gateway [%v]", key.String()))
 		} else {
 
 			// Find our listener
@@ -162,25 +163,39 @@ func (r *TCPRouteReconciler) reconcileService(ctx context.Context, name, namespa
 		return err
 	}
 
+	newService := service.DeepCopy()
 	// Create our service
-	service.Name = name + "-gw-api"
-	service.Namespace = namespace
-	service.ResourceVersion = ""
-	service.Spec.ClusterIP = ""
-	service.Spec.ClusterIPs = []string{}
+	newService.Name = name + "-gw-api"
+	key.Name = newService.Name
+	err = r.Get(ctx, key, newService)
+	newService.Namespace = namespace
+	newService.ResourceVersion = ""
+	newService.Spec.ClusterIP = ""
+	newService.Spec.ClusterIPs = []string{}
 	// Initialise the labels
-	service.Annotations = map[string]string{}
-	service.Annotations["gateway-api-controller"] = r.ControllerName
-	service.Annotations["parent-tcp-route"] = parentName
+	newService.Annotations = map[string]string{}
+	newService.Annotations["gateway-api-controller"] = r.ControllerName
+	newService.Annotations["parent-tcp-route"] = parentName
 	// Set service configuration
-	service.Spec.Type = v1.ServiceTypeLoadBalancer
-	service.Spec.Ports = []v1.ServicePort{
+	newService.Spec.Type = v1.ServiceTypeLoadBalancer
+	newService.Spec.Ports = []v1.ServicePort{
 		{
 			TargetPort: intstr.FromInt(targetport),
 			Port:       int32(port),
 		},
 	}
-	err = r.Create(ctx, &service, &client.CreateOptions{})
+
+	if errors.IsNotFound(err) {
+		// Create a new service
+		err = r.Create(ctx, newService, &client.CreateOptions{})
+		if err != nil {
+			return err
+		}
+	}
+	if err != nil {
+		return err
+	}
+	err = r.Update(ctx, newService, &client.UpdateOptions{})
 	if err != nil {
 		return err
 	}
