@@ -39,7 +39,21 @@ The `/manifests` folder contains the basics of the `GatewayClass`, `Gateway` and
 - The `Gateway` will also perform IPAM and apply an address to the `.Spec.Address` and `.Status.Address` fields
 - The `TCPRoute` will look up its parent `gateway` and confirm that the it's the correct reference, it will then find the listener (external IP address)... with the listener and TCPRoute routes it will then lookup the referenced service. 
 
-### Services implementation (TBD)
+### Services implementation (WIP)
+
+When creating a TCPRoute you can apply the following labels:
+
+```
+metadata:
+  labels:
+    selectorkey: app
+    selectorvalue: my-nginx
+    serviceBehaviour: create
+```
+
+The selector key/value is used when creating/updating/duplicating a corresponding service, the serviceBehaviour determins what the TCPRoute controller will do when a new route is created. (The default behaviour is to create a new service, referenced by `rules.backendRefs.name`)
+
+### Thoughts
 
 As Gateway-API has no concept of selectors (to identify a range of pods or endpoints), it refers to a a service though the `[]rules.[]backendRefs.name` (multiple rules, with multiple backends) with a destination port and destination service (identified as `name`). With L2/L3 loadbalancers not touching the dataplane we rely in Kubernetes services (of type=`LoadBalancer`) to configure the `kube-proxy` so that the dataplane works, without selectors we can't create "enough" of a new service that will map to endpoints.. we can refer to an existing service (that a user has to create) however. 
 
