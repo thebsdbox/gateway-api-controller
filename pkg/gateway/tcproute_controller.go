@@ -19,6 +19,7 @@ package gateway
 import (
 	"context"
 	"fmt"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -33,12 +34,24 @@ import (
 	"sigs.k8s.io/gateway-api/apis/v1beta1"
 )
 
+const (
+	ServiceCreate    string = "create"
+	ServiceDuplicate string = "duplicate"
+	ServiceUpdate    string = "update"
+)
+
+const (
+	serviceBehaviour string = "serviceBehaviour"
+)
+
 // TCPRouteReconciler reconciles a Cluster object
 type TCPRouteReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 
-	ControllerName string
+	ControllerName      string
+	ServiceBehaviour    string
+	ImplementationLabel string
 }
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -87,7 +100,9 @@ func (r *TCPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			return ctrl.Result{}, err
 			//log.Error(err, fmt.Sprintf("Unknown Gateway [%v]", key.String()))
 		} else {
-
+			if len(gateway.Status.Addresses) == 0 {
+				return ctrl.Result{RequeueAfter: time.Second * 10}, fmt.Errorf("gateway [%s], has no addresses assigned", gateway.Name)
+			}
 			// Find our listener
 			if TCPRoute.Spec.ParentRefs[x].SectionName != nil {
 				listener := &v1beta1.Listener{}
@@ -110,7 +125,7 @@ func (r *TCPRouteReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 							} else {
 								serviceNamespace = TCPRoute.Namespace
 							}
-							err = r.reconcileService(ctx, string(TCPRoute.Spec.Rules[y].BackendRefs[z].Name), serviceNamespace, TCPRoute.Name, int(listener.Port), int(*TCPRoute.Spec.Rules[y].BackendRefs[z].Port))
+							err = r.reconcileService(ctx, string(TCPRoute.Spec.Rules[y].BackendRefs[z].Name), serviceNamespace, TCPRoute.Name, gateway.Spec.Addresses[0].Value, int(listener.Port), int(*TCPRoute.Spec.Rules[y].BackendRefs[z].Port), TCPRoute.Labels)
 							if err != nil {
 								return ctrl.Result{}, err
 							}
@@ -147,7 +162,13 @@ func (r *TCPRouteReconciler) deleteService(ctx context.Context, req ctrl.Request
 	return ctrl.Result{}, nil
 }
 
-func (r *TCPRouteReconciler) reconcileService(ctx context.Context, name, namespace, parentName string, port, targetport int) error {
+func (r *TCPRouteReconciler) reconcileService(ctx context.Context, name, namespace, parentName, address string, port, targetport int, selector map[string]string) error {
+	// Set our behaviour for services
+	var servicebehaviour = selector[serviceBehaviour]
+	if servicebehaviour == "" { // If blank default to controller behaviour
+		servicebehaviour = r.ServiceBehaviour
+	}
+
 	// does our service exist?
 	var service v1.Service
 	key := types.NamespacedName{
@@ -155,56 +176,130 @@ func (r *TCPRouteReconciler) reconcileService(ctx context.Context, name, namespa
 		Name:      name,
 	}
 	err := r.Get(ctx, key, &service)
-	// if errors.IsNotFound(err) {
 
-	// } else {
-	//
-	if err != nil {
-		return err
-	}
+	// If there is an error, what we do with it will depend on the service behaviour
+	switch servicebehaviour {
+	case ServiceCreate:
+		if err == nil {
+			return fmt.Errorf("unable to create service [%s], as it already exists", name)
+		}
+		// Service doesn't exist (this error is a good thing)
+		if errors.IsNotFound(err) {
 
-	newService := service.DeepCopy()
-	// Create our service
-	newService.Name = name + "-gw-api"
-	key.Name = newService.Name
-	err = r.Get(ctx, key, newService)
-	newService.Namespace = namespace
-	newService.ResourceVersion = ""
-	newService.Spec.ClusterIP = ""
-	newService.Spec.ClusterIPs = []string{}
-	// Initialise the labels
-	newService.Annotations = map[string]string{}
-	newService.Annotations["gateway-api-controller"] = r.ControllerName
-	newService.Annotations["parent-tcp-route"] = parentName
-	// Set service configuration
-	newService.Spec.Type = v1.ServiceTypeLoadBalancer
-	newService.Spec.Ports = []v1.ServicePort{
-		{
-			TargetPort: intstr.FromInt(targetport),
-			Port:       int32(port),
-		},
-	}
+			// This is the design of the service
+			service.Name = name
+			service.Namespace = namespace
+			service.Annotations = map[string]string{}
+			service.Annotations["gateway-api-controller"] = r.ControllerName
+			service.Annotations["parent-tcp-route"] = parentName
+			service.Labels = map[string]string{}
+			service.Labels["ipam-address"] = address
+			service.Labels["implementation"] = r.ImplementationLabel
+			service.Spec.Type = v1.ServiceTypeLoadBalancer
+			service.Spec.LoadBalancerIP = address
+			service.Spec.Ports = []v1.ServicePort{
+				{
+					TargetPort: intstr.FromInt(targetport),
+					Port:       int32(port),
+				},
+			}
 
-	if errors.IsNotFound(err) {
-		// Create a new service
-		err = r.Create(ctx, newService, &client.CreateOptions{})
-		if err != nil {
+			// Populate the selector from the labels
+			if selector != nil {
+				fmt.Print(selector)
+				k := selector["selectorkey"]
+				v := selector["selectorvalue"]
+				if service.Spec.Selector == nil {
+					service.Spec.Selector = map[string]string{}
+				}
+				service.Spec.Selector[k] = v
+			}
+			err = r.Create(ctx, &service, &client.CreateOptions{})
+			if err != nil {
+				return err
+			}
+		}
+	case ServiceDuplicate:
+		// No error means that the service exists.. lets copy it and create our own
+		if err == nil {
+			newService := service.DeepCopy()
+			// Create our service
+			newService.Name = name + "-gw-api"
+			key.Name = newService.Name
+			err = r.Get(ctx, key, newService)
+			if errors.IsNotFound(err) {
+				newService.Namespace = namespace
+				newService.ResourceVersion = ""
+				newService.Spec.ClusterIP = ""
+				newService.Spec.ClusterIPs = []string{}
+				// Initialise the Annotations
+				newService.Annotations = map[string]string{}
+				newService.Annotations["gateway-api-controller"] = r.ControllerName
+				newService.Annotations["parent-tcp-route"] = parentName
+				// Initialise the Labels
+				if service.Labels == nil {
+					service.Labels = map[string]string{}
+				}
+				service.Labels["ipam-address"] = address
+				service.Labels["implementation"] = r.ImplementationLabel
+				// Set service configuration
+				newService.Spec.Type = v1.ServiceTypeLoadBalancer
+				newService.Spec.Ports = []v1.ServicePort{
+					{
+						TargetPort: intstr.FromInt(targetport),
+						Port:       int32(port),
+					},
+				}
+				err = r.Create(ctx, newService, &client.CreateOptions{})
+				if err != nil {
+					return err
+				}
+			}
+			if err != nil {
+				return err
+			}
+
+		}
+	case ServiceUpdate:
+		if err == nil {
+			service.Annotations["gateway-api-controller"] = r.ControllerName
+			service.Annotations["parent-tcp-route"] = parentName
+			// Set service configuration
+			service.Spec.Type = v1.ServiceTypeLoadBalancer
+			service.Spec.LoadBalancerIP = address
+			service.Spec.Ports = []v1.ServicePort{
+				{
+					TargetPort: intstr.FromInt(targetport),
+					Port:       int32(port),
+				},
+			}
+			if service.Labels == nil {
+				service.Labels = map[string]string{}
+			}
+			service.Labels["ipam-address"] = address
+			service.Labels["implementation"] = r.ImplementationLabel
+			err = r.Update(ctx, &service, &client.UpdateOptions{})
+			if err != nil {
+				return err
+			}
+		} else {
 			return err
 		}
+	default:
+		return fmt.Errorf("unknown service action [%s]", r.ServiceBehaviour)
 	}
-	if err != nil {
-		return err
-	}
-	err = r.Update(ctx, newService, &client.UpdateOptions{})
-	if err != nil {
-		return err
-	}
+
 	// All gravy
 	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *TCPRouteReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	switch r.ServiceBehaviour {
+	case ServiceCreate, ServiceDuplicate, ServiceUpdate:
+	default:
+		return fmt.Errorf("unknown service behaviour, options are [%s/%s/%s]", ServiceCreate, ServiceDuplicate, ServiceUpdate)
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha2.TCPRoute{}).
 		Complete(r)

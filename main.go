@@ -53,7 +53,7 @@ func init() {
 }
 
 func main() {
-	var metricsAddr, gatewayClassName, implamentationLabel, IPAMConfigmap string
+	var metricsAddr, gatewayClassName, implementationLabel, IPAMConfigmap, serviceBehaviour string
 	var enableLeaderElection bool
 	var probeAddr string
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
@@ -65,7 +65,8 @@ func main() {
 	// Gateway API specific config
 	flag.StringVar(&gatewayClassName, "gateway-class-name", "thebsdbox.co.uk/controller", "The name of the controller used by the gateway API objects")
 	flag.StringVar(&IPAMConfigmap, "ipam-configmap", "", "The name of the configmap that has the IPAM ranges")
-	flag.StringVar(&implamentationLabel, "implementation-label", "thebsdbox", "The name of the configmap that has the IPAM ranges")
+	flag.StringVar(&implementationLabel, "implementation-label", "thebsdbox", "The name of the configmap that has the IPAM ranges")
+	flag.StringVar(&serviceBehaviour, "service-behaviour", gateway.ServiceCreate, "Specifies what should happen when referencing a service. create/duplicate/update")
 
 	opts := zap.Options{
 		Development: true,
@@ -103,16 +104,18 @@ func main() {
 		Scheme:              mgr.GetScheme(),
 		ControllerName:      gatewayClassName,
 		IPAMConfigMap:       IPAMConfigmap,
-		ImplementationLabel: implamentationLabel,
+		ImplementationLabel: implementationLabel,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Cluster")
 		os.Exit(1)
 	}
 
 	if err = (&gateway.TCPRouteReconciler{
-		Client:         mgr.GetClient(),
-		Scheme:         mgr.GetScheme(),
-		ControllerName: gatewayClassName,
+		Client:              mgr.GetClient(),
+		Scheme:              mgr.GetScheme(),
+		ControllerName:      gatewayClassName,
+		ServiceBehaviour:    serviceBehaviour,
+		ImplementationLabel: implementationLabel,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Cluster")
 		os.Exit(1)
